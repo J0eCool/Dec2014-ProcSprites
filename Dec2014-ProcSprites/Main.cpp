@@ -1,7 +1,84 @@
 #include <SDL.h>
 #include <SDL_image.h>
 
+#include <iostream>
+#include <set>
 #include <stdio.h>
+#include <vector>
+
+using namespace std;
+
+vector<SDL_Rect> getSprites(SDL_Surface *surface) {
+	int bpp = surface->format->BytesPerPixel;
+	auto getAlpha = [surface](int x, int y) {
+		auto pixel = ((Uint8 *)surface->pixels)[x + y * surface->pitch];
+		Uint8 r, g, b, a;
+		SDL_GetRGBA(pixel, surface->format, &r, &g, &b, &a);
+		return a;
+	};
+	auto floodFill = [surface, getAlpha](int x, int y) {
+		typedef pair<int, int> Point;
+		set<Point> open;
+		set<Point> closed;
+
+		open.insert(make_pair(x, y));
+		closed.insert(make_pair(x, y));
+
+		vector<Point> dirs{ { -1, 0 }, { 0, 1 }, { 1, 0 }, { 0, -1 } };
+		while (!open.empty()) {
+			auto p = *open.begin();
+			open.erase(open.begin());
+
+			for (auto d : dirs) {
+				int i = p.first + d.first;
+				int j = p.second + d.second;
+				if (i >= 0 && j >= 0 && i < surface->w && j <= surface->h &&
+						closed.find(make_pair(i, j)) == closed.end() &&
+						getAlpha(i, j)) {
+					open.insert(make_pair(i, j));
+					closed.insert(make_pair(i, j));
+				}
+			}
+		}
+
+		int left = INT_MAX;
+		int right = 0;
+		int top = INT_MAX;
+		int bot = 0;
+		for (auto p : closed) {
+			left = SDL_min(p.first, left);
+			right = SDL_max(p.first, right);
+			top = SDL_min(p.second, top);
+			bot = SDL_max(p.second, bot);
+		}
+
+		SDL_Rect rect;
+		rect.x = left;
+		rect.y = top;
+		rect.w = right - left + 1;
+		rect.h = bot - top + 1;
+		return rect;
+	};
+
+	vector<SDL_Rect> rects;
+	auto alreadyCounted = [&rects](int x, int y) {
+		for (auto r : rects) {
+			if (x >= r.x && x < r.x + r.w &&
+					y >= r.y && y < r.y + r.h) {
+				return true;
+			}
+		}
+		return false;
+	};
+	for (int y = 0; y < surface->h; ++y) {
+		for (int x = 0; x < surface->w; ++x) {
+			if (getAlpha(x, y) && !alreadyCounted(x, y)) {
+				rects.push_back(floodFill(x, y));
+			}
+		}
+	}
+	return rects;
+}
 
 int main(int argc, char** argv) {
 	SDL_Init(SDL_INIT_VIDEO);
@@ -12,6 +89,10 @@ int main(int argc, char** argv) {
 		SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
 		screenWidth, screenHeight, SDL_WINDOW_SHOWN);
 	auto renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+
+	auto inputSurface = IMG_Load("../Input/MarioSpritesheet.png");
+	auto inputRects = getSprites(inputSurface);
+	auto inputTexture = SDL_CreateTextureFromSurface(renderer, inputSurface);
 
 	int texWidth = 160;
 	int texHeight = 40;
@@ -53,28 +134,44 @@ int main(int argc, char** argv) {
 
 	bool quit = false;
 	SDL_Event event;
+	int inIndex = 0;
 	while (!quit) {
 		while (SDL_PollEvent(&event)) {
 			if (event.type == SDL_QUIT) {
 				quit = true;
 			}
 			else if (event.type == SDL_KEYDOWN) {
-				if (event.key.keysym.sym == SDLK_ESCAPE) {
+				switch (event.key.keysym.sym) {
+				case SDLK_ESCAPE:
 					quit = true;
+					break;
+				case SDLK_LEFT:
+					inIndex = (inIndex + inputRects.size() - 1) % inputRects.size();
+					break;
+				case SDLK_RIGHT:
+					inIndex = (inIndex + 1) % inputRects.size();
+					break;
 				}
 			}
 		}
 
 		SDL_RenderClear(renderer);
 
-		float scale = 4.0f;
+		float scale = 16.0f;
 		SDL_Rect rect;
 		rect.w = (int)(scale * texWidth);
 		rect.h = (int)(scale * texHeight);
 		rect.x = (screenWidth - rect.w) / 2;
 		rect.y = (screenHeight - rect.h) / 2;
-
 		SDL_RenderCopy(renderer, texture, nullptr, &rect);
+
+		SDL_Rect inR = inputRects[inIndex];
+		SDL_Rect inRDest = inR;
+		inRDest.x = 30;
+		inRDest.y = 30;
+		inRDest.w = (int)(inRDest.w * scale);
+		inRDest.h = (int)(inRDest.h * scale);
+		SDL_RenderCopy(renderer, inputTexture, &inR, &inRDest);
 
 		SDL_RenderPresent(renderer);
 	}
@@ -82,6 +179,7 @@ int main(int argc, char** argv) {
 	delete[] pixels;
 	SDL_DestroyTexture(texture);
 	SDL_DestroyRenderer(renderer);
+	SDL_FreeSurface(inputSurface);
 
 	IMG_Quit();
 	SDL_Quit();

@@ -36,6 +36,22 @@ inline Uint32 getPixel(SDL_Surface *surface, int x, int y) {
 	}
 }
 
+inline void setPixel(SDL_Surface *surface, int x, int y, Uint32 pixel) {
+	int bpp = surface->format->BytesPerPixel;
+	Uint8 *p = (Uint8 *)surface->pixels + x * bpp + y * surface->pitch;
+	switch (bpp) {
+	case 1:
+		*p = (Uint8)pixel;
+		break;
+	case 2:
+		*(Uint16 *)p = (Uint16)pixel;
+		break;
+	case 4:
+		*(Uint32 *)p = pixel;
+		break;
+	}
+}
+
 inline Uint8 getAlpha(SDL_Surface *surface, int x, int y) {
 	auto pixel = getPixel(surface, x, y);
 	Uint8 r, g, b, a;
@@ -131,6 +147,18 @@ int main(int argc, char** argv) {
 
 	auto inputSurface = IMG_Load("../Input/MarioSpritesheet.png");
 	auto inputRects = getSprites(inputSurface);
+
+	auto white = SDL_MapRGBA(inputSurface->format, 0xff, 0xff, 0xff, 0xff);
+	auto black = SDL_MapRGBA(inputSurface->format, 0x00, 0x00, 0x00, 0xff);
+	for (auto r : inputRects) {
+		for (int y = r.y; y < r.y + r.h; ++y) {
+			for (int x = r.x; x < r.x + r.w; ++x) {
+				auto pixel = getAlpha(inputSurface, x, y) ? white : black;
+				setPixel(inputSurface, x, y, pixel);
+			}
+		}
+	}
+
 	auto inputTexture = SDL_CreateTextureFromSurface(renderer, inputSurface);
 
 	int texWidth = 160;
@@ -158,10 +186,6 @@ int main(int argc, char** argv) {
 	auto lerp = [clamp01](float t, int lo, int hi) {
 		return (int)(lo + clamp01(t) * (hi - lo));
 	};
-
-	for (auto r : inputRects) {
-
-	}
 
 	int w2 = texWidth / 2;
 	int h2 = texHeight / 2;
@@ -201,12 +225,12 @@ int main(int argc, char** argv) {
 		SDL_RenderClear(renderer);
 
 		float scale = 16.0f;
-		SDL_Rect rect;
-		rect.w = (int)(scale * texWidth);
-		rect.h = (int)(scale * texHeight);
-		rect.x = (screenWidth - rect.w) / 2;
-		rect.y = (screenHeight - rect.h) / 2;
-		SDL_RenderCopy(renderer, texture, nullptr, &rect);
+		// SDL_Rect rect;
+		// rect.w = (int)(scale * texWidth);
+		// rect.h = (int)(scale * texHeight);
+		// rect.x = (screenWidth - rect.w) / 2;
+		// rect.y = (screenHeight - rect.h) / 2;
+		// SDL_RenderCopy(renderer, texture, nullptr, &rect);
 
 		if (inputRects.size() > 0) {
 			SDL_Rect inR = inputRects[inIndex];

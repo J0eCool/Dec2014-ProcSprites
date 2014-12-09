@@ -1,5 +1,10 @@
-#include <SDL.h>
-#include <SDL_image.h>
+#if defined(MAC)
+	#include <SDL2/SDL.h>
+	#include <SDL2_image/SDL_image.h>
+#else
+	#include <SDL.h>
+	#include <SDL_image.h>
+#endif
 
 #include <iostream>
 #include <set>
@@ -8,10 +13,24 @@
 
 using namespace std;
 
-vector<SDL_Rect> getSprites(SDL_Surface *surface) {
+inline Uint32 getPixel(SDL_Surface *surface, int x, int y) {
 	int bpp = surface->format->BytesPerPixel;
+	Uint8 *p = (Uint8 *)surface->pixels + x * bpp + y * surface->pitch;
+	switch (bpp) {
+	case 1:
+		return *p;
+	case 2:
+		return *(Uint16 *)p;
+	case 4:
+		return *(Uint32 *)p;
+	default:
+		return 0;
+	}
+}
+
+vector<SDL_Rect> getSprites(SDL_Surface *surface) {
 	auto getAlpha = [surface](int x, int y) {
-		auto pixel = ((Uint8 *)surface->pixels)[x + y * surface->pitch];
+		auto pixel = getPixel(surface, x, y);
 		Uint8 r, g, b, a;
 		SDL_GetRGBA(pixel, surface->format, &r, &g, &b, &a);
 		return a;
@@ -81,14 +100,25 @@ vector<SDL_Rect> getSprites(SDL_Surface *surface) {
 }
 
 int main(int argc, char** argv) {
-	SDL_Init(SDL_INIT_VIDEO);
-	IMG_Init(IMG_INIT_PNG);
+	if (SDL_Init(SDL_INIT_VIDEO) < 0) {
+		cout << "SDL could not initialize: Error: " << SDL_GetError() << endl;
+	}
+	int imgFlags = IMG_INIT_PNG;
+	if (!(IMG_Init(imgFlags) & imgFlags)) {
+		cout << "SDL_image could not initialize: Error: " << IMG_GetError() << endl;
+	}
 	int screenWidth = 800;
 	int screenHeight = 600;
 	auto window = SDL_CreateWindow("Procedural Sprites", 
 		SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
 		screenWidth, screenHeight, SDL_WINDOW_SHOWN);
+	if (!window) {
+		cout << "Window could not be created: Error: " << SDL_GetError() << endl;
+	}
 	auto renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+	if (!renderer) {
+		cout << "Renderer could not be created: Error: " << SDL_GetError() << endl;
+	}
 
 	auto inputSurface = IMG_Load("../Input/MarioSpritesheet.png");
 	auto inputRects = getSprites(inputSurface);
@@ -165,13 +195,15 @@ int main(int argc, char** argv) {
 		rect.y = (screenHeight - rect.h) / 2;
 		SDL_RenderCopy(renderer, texture, nullptr, &rect);
 
-		SDL_Rect inR = inputRects[inIndex];
-		SDL_Rect inRDest = inR;
-		inRDest.x = 30;
-		inRDest.y = 30;
-		inRDest.w = (int)(inRDest.w * scale);
-		inRDest.h = (int)(inRDest.h * scale);
-		SDL_RenderCopy(renderer, inputTexture, &inR, &inRDest);
+		if (inputRects.size() > 0) {
+			SDL_Rect inR = inputRects[inIndex];
+			SDL_Rect inRDest = inR;
+			inRDest.x = 30;
+			inRDest.y = 30;
+			inRDest.w = (int)(inRDest.w * scale);
+			inRDest.h = (int)(inRDest.h * scale);
+			SDL_RenderCopy(renderer, inputTexture, &inR, &inRDest);
+		}
 
 		SDL_RenderPresent(renderer);
 	}

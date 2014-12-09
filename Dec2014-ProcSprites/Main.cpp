@@ -6,12 +6,20 @@
 	#include <SDL_image.h>
 #endif
 
+#undef _DEBUG
 #include <iostream>
-#include <set>
+#include <unordered_set>
 #include <stdio.h>
 #include <vector>
 
 using namespace std;
+
+struct Point {
+	int x, y;
+	bool operator==(const Point &p) const { return x == p.x && y == p.y; }
+};
+
+namespace std { template <> struct hash < Point > { size_t operator()(const Point &p) const { return hash<int>()(p.x ^ p.y); } }; }
 
 inline Uint32 getPixel(SDL_Surface *surface, int x, int y) {
 	int bpp = surface->format->BytesPerPixel;
@@ -28,57 +36,58 @@ inline Uint32 getPixel(SDL_Surface *surface, int x, int y) {
 	}
 }
 
-vector<SDL_Rect> getSprites(SDL_Surface *surface) {
-	auto getAlpha = [surface](int x, int y) {
-		auto pixel = getPixel(surface, x, y);
-		Uint8 r, g, b, a;
-		SDL_GetRGBA(pixel, surface->format, &r, &g, &b, &a);
-		return a;
-	};
-	auto floodFill = [surface, getAlpha](int x, int y) {
-		typedef pair<int, int> Point;
-		set<Point> open;
-		set<Point> closed;
+inline Uint8 getAlpha(SDL_Surface *surface, int x, int y) {
+	auto pixel = getPixel(surface, x, y);
+	Uint8 r, g, b, a;
+	SDL_GetRGBA(pixel, surface->format, &r, &g, &b, &a);
+	return a;
+}
 
-		open.insert(make_pair(x, y));
-		closed.insert(make_pair(x, y));
+inline SDL_Rect floodFill(SDL_Surface *surface, int x, int y) {
+	unordered_set<Point> open;
+	decltype(open) closed;
 
-		vector<Point> dirs{ { -1, 0 }, { 0, 1 }, { 1, 0 }, { 0, -1 } };
-		while (!open.empty()) {
-			auto p = *open.begin();
-			open.erase(open.begin());
+	open.insert({ x, y });
+	closed.insert({ x, y });
 
-			for (auto d : dirs) {
-				int i = p.first + d.first;
-				int j = p.second + d.second;
-				if (i >= 0 && j >= 0 && i < surface->w && j <= surface->h &&
-						closed.find(make_pair(i, j)) == closed.end() &&
-						getAlpha(i, j)) {
-					open.insert(make_pair(i, j));
-					closed.insert(make_pair(i, j));
-				}
+	vector<Point> dirs{ { -1, 0 }, { 0, 1 }, { 1, 0 }, { 0, -1 } };
+	while (!open.empty()) {
+		auto p = *open.begin();
+		open.erase(open.begin());
+
+		for (auto d : dirs) {
+			int i = p.x + d.x;
+			int j = p.y + d.y;
+			Point p_{ i, j };
+			if (i >= 0 && j >= 0 && i < surface->w && j <= surface->h &&
+					closed.find(p_) == closed.end() &&
+					getAlpha(surface, i, j)) {
+				open.insert(p_);
+				closed.insert(p_);
 			}
 		}
+	}
 
-		int left = INT_MAX;
-		int right = 0;
-		int top = INT_MAX;
-		int bot = 0;
-		for (auto p : closed) {
-			left = SDL_min(p.first, left);
-			right = SDL_max(p.first, right);
-			top = SDL_min(p.second, top);
-			bot = SDL_max(p.second, bot);
-		}
+	int left = INT_MAX;
+	int right = 0;
+	int top = INT_MAX;
+	int bot = 0;
+	for (auto p : closed) {
+		left = SDL_min(p.x, left);
+		right = SDL_max(p.x, right);
+		top = SDL_min(p.y, top);
+		bot = SDL_max(p.y, bot);
+	}
 
-		SDL_Rect rect;
-		rect.x = left;
-		rect.y = top;
-		rect.w = right - left + 1;
-		rect.h = bot - top + 1;
-		return rect;
-	};
+	SDL_Rect rect;
+	rect.x = left;
+	rect.y = top;
+	rect.w = right - left + 1;
+	rect.h = bot - top + 1;
+	return rect;
+};
 
+vector<SDL_Rect> getSprites(SDL_Surface *surface) {
 	vector<SDL_Rect> rects;
 	auto alreadyCounted = [&rects](int x, int y) {
 		for (auto r : rects) {
@@ -91,8 +100,8 @@ vector<SDL_Rect> getSprites(SDL_Surface *surface) {
 	};
 	for (int y = 0; y < surface->h; ++y) {
 		for (int x = 0; x < surface->w; ++x) {
-			if (getAlpha(x, y) && !alreadyCounted(x, y)) {
-				rects.push_back(floodFill(x, y));
+			if (getAlpha(surface, x, y) && !alreadyCounted(x, y)) {
+				rects.push_back(floodFill(surface, x, y));
 			}
 		}
 	}
@@ -149,6 +158,10 @@ int main(int argc, char** argv) {
 	auto lerp = [clamp01](float t, int lo, int hi) {
 		return (int)(lo + clamp01(t) * (hi - lo));
 	};
+
+	for (auto r : inputRects) {
+
+	}
 
 	int w2 = texWidth / 2;
 	int h2 = texHeight / 2;

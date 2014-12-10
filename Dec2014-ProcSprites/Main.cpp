@@ -128,36 +128,66 @@ vector<SDL_Rect> getSprites(SDL_Surface *surface) {
 class SpriteMarkov {
 private:
 	typedef Uint32 Color;
-	typedef Color Input;
+	typedef Uint64 Input;
 	typedef unordered_map<Color, int> Counts;
 	typedef unordered_map<Color, float> Probability;
 	unordered_map<Input, Counts> _data;
 	unordered_map<Input, Probability> _probabilities;
 
-	Color _black;
-	Color _white;
-	Color _eof;
+	Color _blackColor;
+	Color _whiteColor;
+	Input _blackInput;
+	Input _whiteInput;
+	Input _eof;
 	int _bpp;
 
 	Color *_generatedPixels = nullptr;
 
 public:
+	template <typename T>
+	Input getPrev(T f, SDL_Rect const& r, int x, int y) {
+		Input prev = 0;
+		static const int kCount = 3;
+		Point ps[] = { {-1, 0}, {0, -1},
+			{-2, 0}, {-1, -1}, {0, -2},
+			{-3, 0}, {-2, -1}, {-1, -2}, {0, -3} };
+		for (Point& p : ps) {
+			p = { x + p.x, y + p.y };
+		}
+		for (int i = 0; i < kCount; ++i) {
+			Input in;
+			if (ps[i].x < r.x || ps[i].y < r.y) {
+				in = _eof;
+			}
+			else {
+				in = f(ps[i]);
+			}
+			prev |= in << (2 * i);
+		}
+		return prev;
+	}
+
 	SpriteMarkov(SDL_Surface *input) {
 		auto rects = getSprites(input);
 
 		_bpp = input->format->BytesPerPixel;
 
-		_white = SDL_MapRGBA(input->format, 0xff, 0xff, 0xff, 0xff);
-		_black = SDL_MapRGBA(input->format, 0x00, 0x00, 0x00, 0xff);
+		_whiteColor = SDL_MapRGBA(input->format, 0xff, 0xff, 0xff, 0xff);
+		_blackColor = SDL_MapRGBA(input->format, 0x00, 0x00, 0x00, 0xff);
 
-		// no significance, just an invalid color
-		_eof = SDL_MapRGBA(input->format, 0x80, 0x80, 0x80, 0x80);
+		_blackInput = 0x0;
+		_whiteInput = 0x1;
+		_eof = 0x2;
 
+		auto getColor = [this, input](Point p) {
+			return getAlpha(input, p.x, p.y) ? _whiteInput : _blackInput;
+		};
 		for (auto r : rects) {
-			Color prev = _eof;
 			for (int y = r.y; y < r.y + r.h; ++y) {
 				for (int x = r.x; x < r.x + r.w; ++x) {
-					Color cur = getAlpha(input, x, y) ? _white : _black;
+					Input prev = getPrev(getColor, r, x, y);
+
+					Color cur = getAlpha(input, x, y) ? _whiteColor : _blackColor;
 					_data[prev][cur] += 1;
 					prev = cur;
 				}
@@ -185,7 +215,7 @@ public:
 				return colCount.first;
 			}
 		}
-		return _eof;
+		return 0;
 	}
 
 	void* CreatePixelData(int width, int height) {
@@ -194,9 +224,17 @@ public:
 		}
 		_generatedPixels = new Color[width * height * _bpp];
 
-		Color prev = _eof;
+		auto getColor = [this, width](Point p) {
+			return _generatedPixels[p.x + p.y * width] == _whiteColor ? _whiteInput : _blackInput;
+		};
+		SDL_Rect rect;
+		rect.x = 0;
+		rect.y = 0;
+		rect.w = width;
+		rect.h = height;
 		for (int y = 0; y < height; ++y) {
 			for (int x = 0; x < width; ++x) {
+				Input prev = getPrev(getColor, rect, x, y);
 				Color cur = getNext(prev);
 				_generatedPixels[1 * (x + y * width)] = cur;
 				prev = cur;
@@ -250,8 +288,8 @@ int main(int argc, char** argv) {
 
 	auto inputSurface = IMG_Load("../Input/MarioSpritesheet.png");
 
-	int texWidth = 20;
-	int texHeight = 20;
+	int texWidth = 30;
+	int texHeight = 30;
 	SDL_Texture *texture = SDL_CreateTexture(renderer, inputSurface->format->format,
 		SDL_TEXTUREACCESS_STATIC, texWidth, texHeight);
 

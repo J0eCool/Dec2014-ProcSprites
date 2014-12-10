@@ -288,15 +288,23 @@ int main(int argc, char** argv) {
 
 	auto inputSurface = IMG_Load("../Input/MarioSpritesheet.png");
 
-	int texWidth = 30;
-	int texHeight = 30;
-	SDL_Texture *texture = SDL_CreateTexture(renderer, inputSurface->format->format,
-		SDL_TEXTUREACCESS_STATIC, texWidth, texHeight);
+	int texSize = 32;
 
 	SpriteMarkov markov(inputSurface);
-	auto pixels = markov.CreatePixelData(texWidth, texHeight);
 
-	SDL_UpdateTexture(texture, nullptr, pixels, texWidth * inputSurface->format->BytesPerPixel);
+	SDL_Texture *texture = nullptr;
+	auto rebuildTexture = [&texture, &texSize, inputSurface, renderer]() {
+		if (texture) SDL_DestroyTexture(texture);
+		texture = SDL_CreateTexture(renderer, inputSurface->format->format,
+			SDL_TEXTUREACCESS_STATIC, texSize, texSize);
+	};
+	auto remakeSprite = [&texture, &texSize, inputSurface, &markov]() {
+		auto pixels = markov.CreatePixelData(texSize, texSize);
+		SDL_UpdateTexture(texture, nullptr, pixels, texSize * inputSurface->format->BytesPerPixel);
+	};
+
+	rebuildTexture();
+	remakeSprite();
 
 	bool quit = false;
 	SDL_Event event;
@@ -312,12 +320,23 @@ int main(int argc, char** argv) {
 					quit = true;
 					break;
 				case SDLK_SPACE:
-					pixels = markov.CreatePixelData(texWidth, texHeight);
-					SDL_UpdateTexture(texture, nullptr, pixels, texWidth * inputSurface->format->BytesPerPixel);
-					// inIndex = (inIndex + inputRects.size() - 1) % inputRects.size();
+					// greymapscale
 					break;
+
 				case SDLK_RIGHT:
-					// inIndex = (inIndex + 1) % inputRects.size();
+				case SDLK_LEFT:
+					remakeSprite();
+					break;
+
+				case SDLK_UP:
+					texSize++;
+					rebuildTexture();
+					remakeSprite();
+					break;
+				case SDLK_DOWN:
+					texSize = SDL_max(texSize - 1, 0);
+					rebuildTexture();
+					remakeSprite();
 					break;
 				}
 			}
@@ -327,8 +346,8 @@ int main(int argc, char** argv) {
 
 		float scale = 16.0f;
 		SDL_Rect rect;
-		rect.w = (int)(scale * texWidth);
-		rect.h = (int)(scale * texHeight);
+		rect.w = (int)(scale * texSize);
+		rect.h = (int)(scale * texSize);
 		rect.x = (screenWidth - rect.w) / 2;
 		rect.y = (screenHeight - rect.h) / 2;
 		SDL_RenderCopy(renderer, texture, nullptr, &rect);

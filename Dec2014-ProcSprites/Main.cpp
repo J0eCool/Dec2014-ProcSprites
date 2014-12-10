@@ -22,6 +22,16 @@ struct Point {
 
 namespace std { template <> struct hash < Point > { size_t operator()(const Point &p) const { return hash<int>()(p.x ^ p.y); } }; }
 
+float clamp(float t, float lo, float hi) {
+	if (t < lo) { return lo; }
+	if (t > hi) { return hi; }
+	return t;
+};
+float clamp01(float t) { return clamp(t, 0.0f, 1.0f); };
+float lerp(float t, int lo, int hi) {
+	return (int)(lo + clamp01(t) * (hi - lo));
+};
+
 inline Uint32 getPixel(SDL_Surface *surface, int x, int y) {
 	int bpp = surface->format->BytesPerPixel;
 	Uint8 *p = (Uint8 *)surface->pixels + x * bpp + y * surface->pitch;
@@ -134,6 +144,8 @@ private:
 	unordered_map<Input, Counts> _data;
 	unordered_map<Input, Probability> _probabilities;
 
+	SDL_Surface *_inputSurface;
+
 	Color _blackColor;
 	Color _whiteColor;
 	Input _blackInput;
@@ -142,6 +154,8 @@ private:
 	int _bpp;
 
 	Color *_generatedPixels = nullptr;
+	Color *_probabilityPixels = nullptr;
+	bool _showProbability = false;
 
 public:
 	template <typename T>
@@ -167,10 +181,17 @@ public:
 		return prev;
 	}
 
+	Color lerpColor(float t) {
+		Uint8 c = lerp(t, 0x00, 0xff);
+		return SDL_MapRGBA(_inputSurface->format, c, c, c, 0xff);
+	}
+
 	SpriteMarkov(SDL_Surface *input) {
 		auto rects = getSprites(input);
 
 		_bpp = input->format->BytesPerPixel;
+
+		_inputSurface = input;
 
 		_whiteColor = SDL_MapRGBA(input->format, 0xff, 0xff, 0xff, 0xff);
 		_blackColor = SDL_MapRGBA(input->format, 0x00, 0x00, 0x00, 0xff);
@@ -221,8 +242,10 @@ public:
 	void* CreatePixelData(int width, int height) {
 		if (_generatedPixels) {
 			delete[] _generatedPixels;
+			delete[] _probabilityPixels;
 		}
 		_generatedPixels = new Color[width * height * _bpp];
+		_probabilityPixels = new Color[width * height * _bpp];
 
 		auto getColor = [this, width](Point p) {
 			return _generatedPixels[p.x + p.y * width] == _whiteColor ? _whiteInput : _blackInput;
@@ -236,12 +259,22 @@ public:
 			for (int x = 0; x < width; ++x) {
 				Input prev = getPrev(getColor, rect, x, y);
 				Color cur = getNext(prev);
-				_generatedPixels[1 * (x + y * width)] = cur;
+				// TODO: replace "1 * " with "_bpp * ", typedef Color as Uint8 instead of Uint32, for cross-platform
+				auto idx = 1 * (x + y * width);
+				_generatedPixels[idx] = cur;
+
+				float probability = _probabilities[prev][cur];
+				_probabilityPixels[idx] = lerpColor(probability);
 				prev = cur;
 			}
 		}
 
-		return _generatedPixels;
+		return _showProbability ? _probabilityPixels : _generatedPixels;
+	}
+
+	void* ToggleProbabilityPixels() {
+		_showProbability = !_showProbability;
+		return _showProbability ? _probabilityPixels : _generatedPixels;
 	}
 };
 
@@ -266,26 +299,6 @@ int main(int argc, char** argv) {
 		cout << "Renderer could not be created: Error: " << SDL_GetError() << endl;
 	}
 
-	// auto makeRGB = [](Uint8 r, Uint8 g, Uint8 b) {
-	// 	Uint8 a = 0xff;
-	// 	return (a << 24) |
-	// 		(b << 16) |
-	// 		(g << 8) |
-	// 		r;
-	// };
-	// auto makeGray = [makeRGB](Uint8 c) {
-	// 	return makeRGB(c, c, c);
-	// };
-	// auto clamp = [](float t, float lo, float hi) {
-	// 	if (t < lo) { return lo; }
-	// 	if (t > hi) { return hi; }
-	// 	return t;
-	// };
-	// auto clamp01 = [clamp](float t) { return clamp(t, 0.0f, 1.0f); };
-	// auto lerp = [clamp01](float t, int lo, int hi) {
-	// 	return (int)(lo + clamp01(t) * (hi - lo));
-	// };
-
 	auto inputSurface = IMG_Load("../Input/MarioSpritesheet.png");
 
 	int texSize = 32;
@@ -298,9 +311,12 @@ int main(int argc, char** argv) {
 		texture = SDL_CreateTexture(renderer, inputSurface->format->format,
 			SDL_TEXTUREACCESS_STATIC, texSize, texSize);
 	};
-	auto remakeSprite = [&texture, &texSize, inputSurface, &markov]() {
-		auto pixels = markov.CreatePixelData(texSize, texSize);
+	auto buildSprite = [&texture, &texSize, inputSurface](void* pixels) {
 		SDL_UpdateTexture(texture, nullptr, pixels, texSize * inputSurface->format->BytesPerPixel);
+	};
+	auto remakeSprite = [&texture, &texSize, inputSurface, &markov, buildSprite]() {
+		auto pixels = markov.CreatePixelData(texSize, texSize);
+		buildSprite(pixels);
 	};
 
 	rebuildTexture();
@@ -320,7 +336,7 @@ int main(int argc, char** argv) {
 					quit = true;
 					break;
 				case SDLK_SPACE:
-					// greymapscale
+					buildSprite(markov.ToggleProbabilityPixels());
 					break;
 
 				case SDLK_RIGHT:

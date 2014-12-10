@@ -8,8 +8,9 @@
 
 #undef _DEBUG
 #include <iostream>
-#include <unordered_set>
 #include <stdio.h>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 using namespace std;
@@ -124,6 +125,88 @@ vector<SDL_Rect> getSprites(SDL_Surface *surface) {
 	return rects;
 }
 
+class SpriteMarkov {
+private:
+	typedef Uint32 Color;
+	typedef Color Input;
+	typedef unordered_map<Color, int> Counts;
+	typedef unordered_map<Color, float> Probability;
+	unordered_map<Input, Counts> _data;
+	unordered_map<Input, Probability> _probabilities;
+
+	Color _black;
+	Color _white;
+	Color _eof;
+	int _bpp;
+
+	Color *_generatedPixels = nullptr;
+
+public:
+	SpriteMarkov(SDL_Surface *input) {
+		auto rects = getSprites(input);
+
+		_bpp = input->format->BytesPerPixel;
+
+		_white = SDL_MapRGBA(input->format, 0xff, 0xff, 0xff, 0xff);
+		_black = SDL_MapRGBA(input->format, 0x00, 0x00, 0x00, 0xff);
+
+		// no significance, just an invalid color
+		_eof = SDL_MapRGBA(input->format, 0x80, 0x80, 0x80, 0x80);
+
+		for (auto r : rects) {
+			Color prev = _eof;
+			for (int y = r.y; y < r.y + r.h; ++y) {
+				for (int x = r.x; x < r.x + r.w; ++x) {
+					Color cur = getAlpha(input, x, y) ? _white : _black;
+					_data[prev][cur] += 1;
+					prev = cur;
+				}
+			}
+		}
+
+		for (auto inCount : _data) {
+			int count = 0;
+			for (auto colCount : inCount.second) {
+				count += colCount.second;
+			}
+			Probability probs;
+			for (auto colCount : inCount.second) {
+				probs[colCount.first] = (float)colCount.second / count;
+			}
+			_probabilities[inCount.first] = probs;
+		}
+	}
+
+	Color getNext(Input prev) {
+		float r = (float)rand() / RAND_MAX;
+		for (auto colCount : _probabilities[prev]) {
+			r -= colCount.second;
+			if (r <= 0.0f) {
+				return colCount.first;
+			}
+		}
+		return _eof;
+	}
+
+	void* CreatePixelData(int width, int height) {
+		if (_generatedPixels) {
+			delete[] _generatedPixels;
+		}
+		_generatedPixels = new Color[width * height * _bpp];
+
+		Color prev = _eof;
+		for (int y = 0; y < height; ++y) {
+			for (int x = 0; x < width; ++x) {
+				Color cur = getNext(prev);
+				_generatedPixels[1 * (x + y * width)] = cur;
+				prev = cur;
+			}
+		}
+
+		return _generatedPixels;
+	}
+};
+
 int main(int argc, char** argv) {
 	if (SDL_Init(SDL_INIT_VIDEO) < 0) {
 		cout << "SDL could not initialize: Error: " << SDL_GetError() << endl;
@@ -145,59 +228,37 @@ int main(int argc, char** argv) {
 		cout << "Renderer could not be created: Error: " << SDL_GetError() << endl;
 	}
 
+	// auto makeRGB = [](Uint8 r, Uint8 g, Uint8 b) {
+	// 	Uint8 a = 0xff;
+	// 	return (a << 24) |
+	// 		(b << 16) |
+	// 		(g << 8) |
+	// 		r;
+	// };
+	// auto makeGray = [makeRGB](Uint8 c) {
+	// 	return makeRGB(c, c, c);
+	// };
+	// auto clamp = [](float t, float lo, float hi) {
+	// 	if (t < lo) { return lo; }
+	// 	if (t > hi) { return hi; }
+	// 	return t;
+	// };
+	// auto clamp01 = [clamp](float t) { return clamp(t, 0.0f, 1.0f); };
+	// auto lerp = [clamp01](float t, int lo, int hi) {
+	// 	return (int)(lo + clamp01(t) * (hi - lo));
+	// };
+
 	auto inputSurface = IMG_Load("../Input/MarioSpritesheet.png");
-	auto inputRects = getSprites(inputSurface);
 
-	auto white = SDL_MapRGBA(inputSurface->format, 0xff, 0xff, 0xff, 0xff);
-	auto black = SDL_MapRGBA(inputSurface->format, 0x00, 0x00, 0x00, 0xff);
-	for (auto r : inputRects) {
-		for (int y = r.y; y < r.y + r.h; ++y) {
-			for (int x = r.x; x < r.x + r.w; ++x) {
-				auto pixel = getAlpha(inputSurface, x, y) ? white : black;
-				setPixel(inputSurface, x, y, pixel);
-			}
-		}
-	}
-
-	auto inputTexture = SDL_CreateTextureFromSurface(renderer, inputSurface);
-
-	int texWidth = 160;
-	int texHeight = 40;
-	SDL_Texture *texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ABGR8888,
+	int texWidth = 20;
+	int texHeight = 20;
+	SDL_Texture *texture = SDL_CreateTexture(renderer, inputSurface->format->format,
 		SDL_TEXTUREACCESS_STATIC, texWidth, texHeight);
 
-	Uint32 *pixels = new Uint32[texWidth * texHeight];
-	auto makeRGB = [](Uint8 r, Uint8 g, Uint8 b) {
-		Uint8 a = 0xff;
-		return (a << 24) |
-			(b << 16) |
-			(g << 8) |
-			r;
-	};
-	auto makeGray = [makeRGB](Uint8 c) {
-		return makeRGB(c, c, c);
-	};
-	auto clamp = [](float t, float lo, float hi) {
-		if (t < lo) { return lo; }
-		if (t > hi) { return hi; }
-		return t;
-	};
-	auto clamp01 = [clamp](float t) { return clamp(t, 0.0f, 1.0f); };
-	auto lerp = [clamp01](float t, int lo, int hi) {
-		return (int)(lo + clamp01(t) * (hi - lo));
-	};
+	SpriteMarkov markov(inputSurface);
+	auto pixels = markov.CreatePixelData(texWidth, texHeight);
 
-	int w2 = texWidth / 2;
-	int h2 = texHeight / 2;
-	for (int y = 0; y < texHeight; ++y) {
-		for (int x = 0; x < texWidth; ++x) {
-			float t = (float)SDL_sqrt((x - w2) * (x - w2) / float(w2 * w2) +
-				(y - h2) * (y - h2) / float(h2 * h2));
-			pixels[x + y * texWidth] = makeGray(lerp(t, 0xff, 0x00));
-		}
-	}
-
-	SDL_UpdateTexture(texture, nullptr, pixels, texWidth * sizeof(Uint32));
+	SDL_UpdateTexture(texture, nullptr, pixels, texWidth * inputSurface->format->BytesPerPixel);
 
 	bool quit = false;
 	SDL_Event event;
@@ -212,11 +273,13 @@ int main(int argc, char** argv) {
 				case SDLK_ESCAPE:
 					quit = true;
 					break;
-				case SDLK_LEFT:
-					inIndex = (inIndex + inputRects.size() - 1) % inputRects.size();
+				case SDLK_SPACE:
+					pixels = markov.CreatePixelData(texWidth, texHeight);
+					SDL_UpdateTexture(texture, nullptr, pixels, texWidth * inputSurface->format->BytesPerPixel);
+					// inIndex = (inIndex + inputRects.size() - 1) % inputRects.size();
 					break;
 				case SDLK_RIGHT:
-					inIndex = (inIndex + 1) % inputRects.size();
+					// inIndex = (inIndex + 1) % inputRects.size();
 					break;
 				}
 			}
@@ -225,27 +288,17 @@ int main(int argc, char** argv) {
 		SDL_RenderClear(renderer);
 
 		float scale = 16.0f;
-		// SDL_Rect rect;
-		// rect.w = (int)(scale * texWidth);
-		// rect.h = (int)(scale * texHeight);
-		// rect.x = (screenWidth - rect.w) / 2;
-		// rect.y = (screenHeight - rect.h) / 2;
-		// SDL_RenderCopy(renderer, texture, nullptr, &rect);
-
-		if (inputRects.size() > 0) {
-			SDL_Rect inR = inputRects[inIndex];
-			SDL_Rect inRDest = inR;
-			inRDest.x = 30;
-			inRDest.y = 30;
-			inRDest.w = (int)(inRDest.w * scale);
-			inRDest.h = (int)(inRDest.h * scale);
-			SDL_RenderCopy(renderer, inputTexture, &inR, &inRDest);
-		}
+		SDL_Rect rect;
+		rect.w = (int)(scale * texWidth);
+		rect.h = (int)(scale * texHeight);
+		rect.x = (screenWidth - rect.w) / 2;
+		rect.y = (screenHeight - rect.h) / 2;
+		SDL_RenderCopy(renderer, texture, nullptr, &rect);
 
 		SDL_RenderPresent(renderer);
 	}
 
-	delete[] pixels;
+	// delete[] pixels;
 	SDL_DestroyTexture(texture);
 	SDL_DestroyRenderer(renderer);
 	SDL_FreeSurface(inputSurface);

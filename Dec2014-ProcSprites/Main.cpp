@@ -33,9 +33,8 @@ float lerp(float t, int lo, int hi) {
 	return (int)(lo + clamp01(t) * (hi - lo));
 };
 
-inline Uint32 getPixel(SDL_Surface *surface, int x, int y) {
-	int bpp = surface->format->BytesPerPixel;
-	Uint8 *p = (Uint8 *)surface->pixels + x * bpp + y * surface->pitch;
+inline Uint32 getRawPixel(void* pixels, int bpp, int pitch, int x, int y) {
+	Uint8 *p = (Uint8 *)pixels + x * bpp + y * pitch;
 	switch (bpp) {
 	case 1:
 		return *p;
@@ -45,23 +44,34 @@ inline Uint32 getPixel(SDL_Surface *surface, int x, int y) {
 		return *(Uint32 *)p;
 	default:
 		return 0;
-	}
+	}	
 }
 
-inline void setPixel(SDL_Surface *surface, int x, int y, Uint32 pixel) {
+inline Uint32 getPixel(SDL_Surface *surface, int x, int y) {
 	int bpp = surface->format->BytesPerPixel;
-	Uint8 *p = (Uint8 *)surface->pixels + x * bpp + y * surface->pitch;
+	int pitch = surface->pitch;
+	return getRawPixel(surface->pixels, bpp, pitch, x, y);
+}
+
+inline void setRawPixel(void* pixels, int bpp, int pitch, int x, int y, Uint32 color) {
+	Uint8 *p = (Uint8 *)pixels + x * bpp + y * pitch;
 	switch (bpp) {
 	case 1:
-		*p = (Uint8)pixel;
+		*p = (Uint8)color;
 		break;
 	case 2:
-		*(Uint16 *)p = (Uint16)pixel;
+		*(Uint16 *)p = (Uint16)color;
 		break;
 	case 4:
-		*(Uint32 *)p = pixel;
+		*(Uint32 *)p = color;
 		break;
-	}
+	}	
+}
+
+inline void setPixel(SDL_Surface *surface, int x, int y, Uint32 color) {
+	int bpp = surface->format->BytesPerPixel;
+	int pitch = surface->pitch;
+	setRawPixel(surface->pixels, bpp, pitch, x, y, color);
 }
 
 inline Uint8 getAlpha(SDL_Surface *surface, int x, int y) {
@@ -155,8 +165,8 @@ private:
 	InputAtom _eof;
 	int _bpp;
 
-	Color *_generatedPixels = nullptr;
-	Color *_probabilityPixels = nullptr;
+	Uint8 *_generatedPixels = nullptr;
+	Uint8 *_probabilityPixels = nullptr;
 	bool _showProbability = false;
 
 public:
@@ -214,7 +224,6 @@ public:
 
 					Color cur = getAlpha(input, x, y) ? _whiteColor : _blackColor;
 					_data[prev][cur] += 1;
-					prev = cur;
 				}
 			}
 		}
@@ -248,11 +257,11 @@ public:
 			delete[] _generatedPixels;
 			delete[] _probabilityPixels;
 		}
-		_generatedPixels = new Color[width * height * _bpp];
-		_probabilityPixels = new Color[width * height * _bpp];
+		_generatedPixels = new Uint8[width * height * _bpp];
+		_probabilityPixels = new Uint8[width * height * _bpp];
 
 		auto getColor = [this, width](Point p) {
-			return _generatedPixels[p.x + p.y * width] == _whiteColor ? _whiteInput : _blackInput;
+			return getRawPixel(_generatedPixels, _bpp, _bpp * width, p.x, p.y) == _whiteColor ? _whiteInput : _blackInput;
 		};
 		SDL_Rect rect;
 		rect.x = 0;
@@ -263,13 +272,10 @@ public:
 			for (int x = 0; x < width; ++x) {
 				Input prev = getPrev(getColor, rect, x, y);
 				Color cur = getNext(prev);
-				// TODO: replace "1 * " with "_bpp * ", typedef Color as Uint8 instead of Uint32, for cross-platform
-				auto idx = 1 * (x + y * width);
-				_generatedPixels[idx] = cur;
+				setRawPixel(_generatedPixels, _bpp, _bpp * width, x, y, cur);
 
 				float probability = _probabilities[prev][cur];
-				_probabilityPixels[idx] = lerpColor(probability);
-				prev = cur;
+				setRawPixel(_probabilityPixels, _bpp, _bpp * width, x, y, lerpColor(probability));
 			}
 		}
 

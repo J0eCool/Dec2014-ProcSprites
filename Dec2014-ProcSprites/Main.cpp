@@ -9,6 +9,7 @@
 #undef _DEBUG
 #include <iostream>
 #include <stdio.h>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -138,7 +139,8 @@ vector<SDL_Rect> getSprites(SDL_Surface *surface) {
 class SpriteMarkov {
 private:
 	typedef Uint32 Color;
-	typedef Uint64 Input;
+	typedef string Input;
+	typedef char InputAtom;
 	typedef unordered_map<Color, int> Counts;
 	typedef unordered_map<Color, float> Probability;
 	unordered_map<Input, Counts> _data;
@@ -148,9 +150,9 @@ private:
 
 	Color _blackColor;
 	Color _whiteColor;
-	Input _blackInput;
-	Input _whiteInput;
-	Input _eof;
+	InputAtom _blackInput;
+	InputAtom _whiteInput;
+	InputAtom _eof;
 	int _bpp;
 
 	Color *_generatedPixels = nullptr;
@@ -160,23 +162,25 @@ private:
 public:
 	template <typename T>
 	Input getPrev(T f, SDL_Rect const& r, int x, int y) {
-		Input prev = 0;
+		Input prev = "";
 		static const int kCount = 3;
-		Point ps[] = { {-1, 0}, {0, -1},
-			{-2, 0}, {-1, -1}, {0, -2},
-			{-3, 0}, {-2, -1}, {-1, -2}, {0, -3} };
+		// Point ps[] = { {-1, 0}, {0, -1},
+		// 	{-2, 0}, {-1, -1}, {0, -2},
+		// 	{-3, 0}, {-2, -1}, {-1, -2}, {0, -3} };
+		Point ps[] = { {-1, 0}, {0, -1}, {-1, -1} };
 		for (Point& p : ps) {
 			p = { x + p.x, y + p.y };
 		}
 		for (int i = 0; i < kCount; ++i) {
+			auto p = ps[i];
 			Input in;
-			if (ps[i].x < r.x || ps[i].y < r.y) {
+			if (p.x < r.x || p.y < r.y) {
 				in = _eof;
 			}
 			else {
-				in = f(ps[i]);
+				in = f(p);
 			}
-			prev |= in << (2 * i);
+			prev += in;
 		}
 		return prev;
 	}
@@ -196,9 +200,9 @@ public:
 		_whiteColor = SDL_MapRGBA(input->format, 0xff, 0xff, 0xff, 0xff);
 		_blackColor = SDL_MapRGBA(input->format, 0x00, 0x00, 0x00, 0xff);
 
-		_blackInput = 0x0;
-		_whiteInput = 0x1;
-		_eof = 0x2;
+		_blackInput = 'b';
+		_whiteInput = 'w';
+		_eof = '$';
 
 		auto getColor = [this, input](Point p) {
 			return getAlpha(input, p.x, p.y) ? _whiteInput : _blackInput;
@@ -275,6 +279,16 @@ public:
 	void* ToggleProbabilityPixels() {
 		_showProbability = !_showProbability;
 		return _showProbability ? _probabilityPixels : _generatedPixels;
+	}
+
+	void PrintProbabilities() {
+		for (auto inProb : _probabilities) {
+			cout << "In: " << inProb.first << '\n';
+			for (auto colProb : inProb.second) {
+				char c = colProb.first == _blackColor ? 'b' : 'w';
+				cout << '\t' << c << " : " << colProb.second << '\n';
+			}
+		}
 	}
 };
 

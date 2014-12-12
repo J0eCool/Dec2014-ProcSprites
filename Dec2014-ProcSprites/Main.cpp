@@ -172,7 +172,7 @@ private:
 public:
 	template <typename T>
 	Input getPrev(T f, SDL_Rect const& r, int x, int y) {
-		static const int kMaxDx = 2;
+		static const int kMaxDx = 1;
 		static bool didInitialize = false;
 		static vector<Point> ds;
 		if (!didInitialize) {
@@ -191,6 +191,13 @@ public:
 		}
 
 		Input prev = "";
+		int divUp = r.y + r.h / 3;
+		int divDown = r.y + 2 * r.h / 3;
+		int divLeft = r.x + r.w / 3;
+		int divRight = r.x + 2 * r.w / 3;
+		prev += y < divUp ? 'u' : (y > divDown ? 'd' : 'm');
+		prev += x < divLeft ? 'l' : ( x > divRight ? 'r' : 'm');
+
 		for (Point p : ps) {
 			InputAtom in;
 			if (p.x < r.x || p.y < r.y) {
@@ -239,12 +246,13 @@ public:
 
 		for (auto inCount : _data) {
 			int count = 0;
+			static const int kBias = 5;
 			for (auto colCount : inCount.second) {
-				count += colCount.second;
+				count += colCount.second + kBias;
 			}
 			Probability probs;
 			for (auto colCount : inCount.second) {
-				probs[colCount.first] = (float)colCount.second / count;
+				probs[colCount.first] = (float)(colCount.second + kBias) / count;
 			}
 			_probabilities[inCount.first] = probs;
 		}

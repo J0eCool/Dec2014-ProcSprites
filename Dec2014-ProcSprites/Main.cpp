@@ -172,18 +172,27 @@ private:
 public:
 	template <typename T>
 	Input getPrev(T f, SDL_Rect const& r, int x, int y) {
-		Input prev = "";
-		static const int kCount = 3;
-		// Point ps[] = { {-1, 0}, {0, -1},
-		// 	{-2, 0}, {-1, -1}, {0, -2},
-		// 	{-3, 0}, {-2, -1}, {-1, -2}, {0, -3} };
-		Point ps[] = { {-1, 0}, {0, -1}, {-1, -1} };
-		for (Point& p : ps) {
-			p = { x + p.x, y + p.y };
+		static const int kMaxDx = 2;
+		static bool didInitialize = false;
+		static vector<Point> ds;
+		if (!didInitialize) {
+			didInitialize = true;
+			for (int i = 0; i <= kMaxDx; ++i) {
+				for (int j = 0; j <= kMaxDx - i; ++j) {
+					if (i == 0 && j == 0) { continue; }
+					ds.push_back({ -i, -j });
+				}
+			}
 		}
-		for (int i = 0; i < kCount; ++i) {
-			auto p = ps[i];
-			Input in;
+
+		vector<Point> ps;
+		for (Point& d : ds) {
+			ps.push_back({ x + d.x, y + d.y });
+		}
+
+		Input prev = "";
+		for (Point p : ps) {
+			InputAtom in;
 			if (p.x < r.x || p.y < r.y) {
 				in = _eof;
 			}

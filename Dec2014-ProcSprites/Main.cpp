@@ -184,12 +184,17 @@ public:
 		}
 
 		Input prev = "";
-		int divUp = r.y + r.h / 3;
-		int divDown = r.y + 2 * r.h / 3;
-		int divLeft = r.x + r.w / 3;
-		int divRight = r.x + 2 * r.w / 3;
-		prev += y < divUp ? 'u' : (y > divDown ? 'd' : 'm');
-		prev += x < divLeft ? 'l' : ( x > divRight ? 'r' : 'm');
+		static auto divNum = [](int pos, int start, int size) {
+			static const int kNumDivs = 4;
+			for (int i = 0; i < kNumDivs; ++i) {
+				if (pos < start + i * size / kNumDivs) {
+					return '0' + i;
+				}
+			}
+			return '0' + kNumDivs;
+		};
+		prev += divNum(x, r.x, r.w);
+		prev += divNum(y, r.y, r.h);
 
 		for (Point p : ps) {
 			Input in;
@@ -209,39 +214,29 @@ public:
 		return SDL_MapRGBA(_inputFormat, c, c, c, 0xff);
 	}
 
+	vector<Uint8> _thresholds { 0x40, 0x80, 0xb0, 0xff };
 	InputAtom atomForValue(Uint8 c) {
-		if (c < 0x40) {
-			return '1';
+		for (int i = 0; i < _thresholds.size(); ++i) {
+			if (c <= _thresholds[i]) {
+				return '0' + i;
+			}
 		}
-		if (c < 0x80) {
-			return '2';
-		}
-		if (c < 0xb0) {
-			return '3';
-		}
-		return '4';
+		return '0' + _thresholds.size();
 	}
 	Uint8 valueForAtom(InputAtom i) {
-		switch (i) {
-		case '0':
-		default:
+		int idx = i - '0';
+		if (i == '_' || idx < 0 || idx >= _thresholds.size()) {
 			return 0;
-		case '1':
-			return 0x40;
-		case '2':
-			return 0x80;
-		case '3':
-			return 0xb0;
-		case '4':
-			return 0xff;
 		}
+		return _thresholds[idx];
 	}
+
 	Input inputForColor(Color c) {
 		Uint8 r, g, b, a;
 		SDL_GetRGBA(c, _inputFormat, &r, &g, &b, &a);
 
 		if (a < 0) {
-			return "000";
+			return "___";
 		}
 
 		Input input = "";
@@ -257,15 +252,20 @@ public:
 			return SDL_MapRGBA(_inputFormat, 0, 0, 0, 0);
 		}
 
-		Uint8 o = (r + g + b) / 3;
-		o = valueForAtom(atomForValue(o));
-		return SDL_MapRGBA(_inputFormat, o, o, o, a);
+		static const bool kGreyscale = true;
 
-		// return SDL_MapRGBA(_inputFormat,
-		// 	valueForAtom(atomForValue(r)),
-		// 	valueForAtom(atomForValue(g)),
-		// 	valueForAtom(atomForValue(b)),
-		// 	a);
+		if (kGreyscale) {
+			Uint8 o = (r + g + b) / 3;
+			o = valueForAtom(atomForValue(o));
+			return SDL_MapRGBA(_inputFormat, o, o, o, a);
+		}
+		else {
+			return SDL_MapRGBA(_inputFormat,
+				valueForAtom(atomForValue(r)),
+				valueForAtom(atomForValue(g)),
+				valueForAtom(atomForValue(b)),
+				a);
+		}
 	}
 
 	SpriteMarkov(SDL_Surface *input) {
@@ -291,7 +291,7 @@ public:
 
 		for (auto inCount : _data) {
 			int count = 0;
-			static const int kBias = 5;
+			static const int kBias = 3;
 			for (auto colCount : inCount.second) {
 				count += colCount.second + kBias;
 			}
@@ -398,6 +398,7 @@ int main(int argc, char** argv) {
 	bool quit = false;
 	SDL_Event event;
 	int inIndex = 0;
+	const static float kScaleFactor = 1.2f;
 	while (!quit) {
 		while (SDL_PollEvent(&event)) {
 			if (event.type == SDL_QUIT) {
@@ -415,12 +416,13 @@ int main(int argc, char** argv) {
 					break;
 
 				case SDLK_UP:
-					texSize++;
+					texSize = (int)(texSize * kScaleFactor + 1);
 					rebuildTexture();
 					remakeSprite();
 					break;
 				case SDLK_DOWN:
-					texSize = SDL_max(texSize - 1, 0);
+					texSize = (int)(texSize / kScaleFactor - 1);
+					texSize = SDL_max(texSize, 0);
 					rebuildTexture();
 					remakeSprite();
 					break;
@@ -430,7 +432,7 @@ int main(int argc, char** argv) {
 
 		SDL_RenderClear(renderer);
 
-		float scale = 16.0f;
+		float scale = 4.0f;
 		SDL_Rect rect;
 		rect.w = (int)(scale * texSize);
 		rect.h = (int)(scale * texSize);

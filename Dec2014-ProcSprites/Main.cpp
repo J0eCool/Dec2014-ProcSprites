@@ -7,6 +7,7 @@
 #endif
 
 #undef _DEBUG
+#include <boost/filesystem.hpp>
 #include <iostream>
 #include <stdio.h>
 #include <string>
@@ -402,9 +403,15 @@ int main(int argc, char** argv) {
 	int texSize = 16;
 
 	SpriteMarkov markov;
-	markov.loadSurface(IMG_Load("../Input/MegaMan3Sheet1.gif"));
-	markov.loadSurface(IMG_Load("../Input/MegaMan3Sheet2.gif"));
-	markov.loadSurface(IMG_Load("../Input/MarioSpritesheet.png"));
+	auto loadInDirectory = [&markov](string dir) {
+		boost::filesystem::recursive_directory_iterator end;
+		for (decltype(end) it(dir); it != end; ++it) {
+			auto path = it->path().c_str();
+			cout << "Loading : " << path << '\n';
+			markov.loadSurface(IMG_Load(path));
+		}
+	};
+	loadInDirectory("Input/");
 
 	SDL_Texture *texture = nullptr;
 	auto rebuildTexture = [&texture, &texSize, &markov, renderer]() {

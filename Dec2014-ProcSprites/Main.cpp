@@ -156,18 +156,11 @@ private:
 	unordered_map<Input, Counts> _data;
 	unordered_map<Input, Probability> _probabilities;
 
-	SDL_Surface *_inputSurface;
+	SDL_PixelFormat *_inputFormat;
 
-	Color _blackColor;
-	Color _whiteColor;
-	InputAtom _blackInput;
-	InputAtom _whiteInput;
-	InputAtom _eof;
 	int _bpp;
 
 	Uint8 *_generatedPixels = nullptr;
-	Uint8 *_probabilityPixels = nullptr;
-	bool _showProbability = false;
 
 public:
 	template <typename T>
@@ -199,9 +192,9 @@ public:
 		prev += x < divLeft ? 'l' : ( x > divRight ? 'r' : 'm');
 
 		for (Point p : ps) {
-			InputAtom in;
+			Input in;
 			if (p.x < r.x || p.y < r.y) {
-				in = _eof;
+				in = '$';
 			}
 			else {
 				in = f(p);
@@ -213,7 +206,66 @@ public:
 
 	Color lerpColor(float t) {
 		Uint8 c = lerp(t, 0x00, 0xff);
-		return SDL_MapRGBA(_inputSurface->format, c, c, c, 0xff);
+		return SDL_MapRGBA(_inputFormat, c, c, c, 0xff);
+	}
+
+	InputAtom atomForValue(Uint8 c) {
+		if (c < 0x40) {
+			return '1';
+		}
+		if (c < 0x80) {
+			return '2';
+		}
+		if (c < 0xb0) {
+			return '3';
+		}
+		return '4';
+	}
+	Uint8 valueForAtom(InputAtom i) {
+		switch (i) {
+		case '0':
+		default:
+			return 0;
+		case '1':
+			return 0x40;
+		case '2':
+			return 0x80;
+		case '3':
+			return 0xb0;
+		case '4':
+			return 0xff;
+		}
+	}
+	Input inputForColor(Color c) {
+		Uint8 r, g, b, a;
+		SDL_GetRGBA(c, _inputFormat, &r, &g, &b, &a);
+
+		if (a < 0) {
+			return "000";
+		}
+
+		Input input = "";
+		input += atomForValue(r);
+		input += atomForValue(g);
+		input += atomForValue(b);
+		return input;
+	}
+	Color filterColor(Color c) {
+		Uint8 r, g, b, a;
+		SDL_GetRGBA(c, _inputFormat, &r, &g, &b, &a);
+		if (!a) {
+			return SDL_MapRGBA(_inputFormat, 0, 0, 0, 0);
+		}
+
+		Uint8 o = (r + g + b) / 3;
+		o = valueForAtom(atomForValue(o));
+		return SDL_MapRGBA(_inputFormat, o, o, o, a);
+
+		// return SDL_MapRGBA(_inputFormat,
+		// 	valueForAtom(atomForValue(r)),
+		// 	valueForAtom(atomForValue(g)),
+		// 	valueForAtom(atomForValue(b)),
+		// 	a);
 	}
 
 	SpriteMarkov(SDL_Surface *input) {
@@ -221,24 +273,17 @@ public:
 
 		_bpp = input->format->BytesPerPixel;
 
-		_inputSurface = input;
-
-		_whiteColor = SDL_MapRGBA(input->format, 0xff, 0xff, 0xff, 0xff);
-		_blackColor = SDL_MapRGBA(input->format, 0x00, 0x00, 0x00, 0xff);
-
-		_blackInput = 'b';
-		_whiteInput = 'w';
-		_eof = '$';
+		_inputFormat = input->format;
 
 		auto getColor = [this, input](Point p) {
-			return getAlpha(input, p.x, p.y) ? _whiteInput : _blackInput;
+			return inputForColor(filterColor(getPixel(input, p.x, p.y)));
 		};
 		for (auto r : rects) {
 			for (int y = r.y; y < r.y + r.h; ++y) {
 				for (int x = r.x; x < r.x + r.w; ++x) {
 					Input prev = getPrev(getColor, r, x, y);
 
-					Color cur = getAlpha(input, x, y) ? _whiteColor : _blackColor;
+					Color cur = filterColor(getPixel(input, x, y));
 					_data[prev][cur] += 1;
 				}
 			}
@@ -272,13 +317,11 @@ public:
 	void* CreatePixelData(int width, int height) {
 		if (_generatedPixels) {
 			delete[] _generatedPixels;
-			delete[] _probabilityPixels;
 		}
 		_generatedPixels = new Uint8[width * height * _bpp];
-		_probabilityPixels = new Uint8[width * height * _bpp];
 
 		auto getColor = [this, width](Point p) {
-			return getRawPixel(_generatedPixels, _bpp, _bpp * width, p.x, p.y) == _whiteColor ? _whiteInput : _blackInput;
+			return inputForColor(getRawPixel(_generatedPixels, _bpp, _bpp * width, p.x, p.y));
 		};
 		SDL_Rect rect;
 		rect.x = 0;
@@ -290,26 +333,19 @@ public:
 				Input prev = getPrev(getColor, rect, x, y);
 				Color cur = getNext(prev);
 				setRawPixel(_generatedPixels, _bpp, _bpp * width, x, y, cur);
-
-				float probability = _probabilities[prev][cur];
-				setRawPixel(_probabilityPixels, _bpp, _bpp * width, x, y, lerpColor(probability));
 			}
 		}
 
-		return _showProbability ? _probabilityPixels : _generatedPixels;
-	}
-
-	void* ToggleProbabilityPixels() {
-		_showProbability = !_showProbability;
-		return _showProbability ? _probabilityPixels : _generatedPixels;
+		return _generatedPixels;
 	}
 
 	void PrintProbabilities() {
-		for (auto inProb : _probabilities) {
+		for (auto inProb : _data) {
 			cout << "In: " << inProb.first << '\n';
 			for (auto colProb : inProb.second) {
-				char c = colProb.first == _blackColor ? 'b' : 'w';
-				cout << '\t' << c << " : " << colProb.second << '\n';
+				Uint8 r, g, b, a;
+				SDL_GetRGBA(colProb.first, _inputFormat, &r, &g, &b, &a);
+				printf("\t(%d, %d, %d) : %d\n", r, g, b, colProb.second);
 			}
 		}
 	}
@@ -371,9 +407,6 @@ int main(int argc, char** argv) {
 				switch (event.key.keysym.sym) {
 				case SDLK_ESCAPE:
 					quit = true;
-					break;
-				case SDLK_SPACE:
-					buildSprite(markov.ToggleProbabilityPixels());
 					break;
 
 				case SDLK_RIGHT:

@@ -170,6 +170,8 @@ private:
 
 	Uint8 *_generatedPixels = nullptr;
 
+	bool _initialized = false;
+
 public:
 	template <typename T>
 	Input getPrev(T f, SDL_Rect const& r, int x, int y) {
@@ -272,12 +274,14 @@ public:
 		}
 	}
 
-	SpriteMarkov(SDL_Surface *input) {
+	void loadSurface(SDL_Surface *input) {
+		if (!_initialized) {
+			_bpp = input->format->BytesPerPixel;
+			_inputFormat = input->format;
+			_initialized = true;
+		}
+
 		auto rects = getSprites(input);
-
-		_bpp = input->format->BytesPerPixel;
-
-		_inputFormat = input->format;
 
 		auto getColor = [this, input](Point p) {
 			return inputForColor(filterColor(getPixel(input, p.x, p.y)));
@@ -352,6 +356,8 @@ public:
 			}
 		}
 	}
+
+	SDL_PixelFormat* GetFormat() { return _inputFormat; }
 };
 
 int main(int argc, char** argv) {
@@ -393,23 +399,23 @@ int main(int argc, char** argv) {
 		cout << "Renderer could not be created: Error: " << SDL_GetError() << endl;
 	}
 
-	// auto inputSurface = IMG_Load("../Input/MarioSpritesheet.png");
-	auto inputSurface = IMG_Load("../Input/MegaMan3Sheet2.gif");
-
 	int texSize = 16;
 
-	SpriteMarkov markov(inputSurface);
+	SpriteMarkov markov;
+	markov.loadSurface(IMG_Load("../Input/MegaMan3Sheet1.gif"));
+	markov.loadSurface(IMG_Load("../Input/MegaMan3Sheet2.gif"));
+	markov.loadSurface(IMG_Load("../Input/MarioSpritesheet.png"));
 
 	SDL_Texture *texture = nullptr;
-	auto rebuildTexture = [&texture, &texSize, inputSurface, renderer]() {
+	auto rebuildTexture = [&texture, &texSize, &markov, renderer]() {
 		if (texture) SDL_DestroyTexture(texture);
-		texture = SDL_CreateTexture(renderer, inputSurface->format->format,
+		texture = SDL_CreateTexture(renderer, markov.GetFormat()->format,
 			SDL_TEXTUREACCESS_STATIC, texSize, texSize);
 	};
-	auto buildSprite = [&texture, &texSize, inputSurface](void* pixels) {
-		SDL_UpdateTexture(texture, nullptr, pixels, texSize * inputSurface->format->BytesPerPixel);
+	auto buildSprite = [&texture, &texSize, &markov](void* pixels) {
+		SDL_UpdateTexture(texture, nullptr, pixels, texSize * markov.GetFormat()->BytesPerPixel);
 	};
-	auto remakeSprite = [&texture, &texSize, inputSurface, &markov, buildSprite]() {
+	auto remakeSprite = [&texture, &texSize, &markov, buildSprite]() {
 		auto pixels = markov.CreatePixelData(texSize, texSize);
 		buildSprite(pixels);
 	};
@@ -465,10 +471,9 @@ int main(int argc, char** argv) {
 		SDL_RenderPresent(renderer);
 	}
 
-	// delete[] pixels;
 	SDL_DestroyTexture(texture);
 	SDL_DestroyRenderer(renderer);
-	SDL_FreeSurface(inputSurface);
+	// SDL_FreeSurface(inputSurface);
 
 	IMG_Quit();
 	SDL_Quit();

@@ -146,6 +146,14 @@ vector<SDL_Rect> getSprites(SDL_Surface *surface) {
 	return rects;
 }
 
+struct MarkovArgs {
+	int lookahead = 1;
+	int imageDivisions = 4;
+	bool useColor = false;
+	int biasTerm = 5;
+};
+MarkovArgs gArgs;
+
 class SpriteMarkov {
 private:
 	typedef Uint32 Color;
@@ -165,13 +173,12 @@ private:
 public:
 	template <typename T>
 	Input getPrev(T f, SDL_Rect const& r, int x, int y) {
-		static const int kMaxDx = 1;
 		static bool didInitialize = false;
 		static vector<Point> ds;
 		if (!didInitialize) {
 			didInitialize = true;
-			for (int i = 0; i <= kMaxDx; ++i) {
-				for (int j = 0; j <= kMaxDx - i; ++j) {
+			for (int i = 0; i <= gArgs.lookahead; ++i) {
+				for (int j = 0; j <= gArgs.lookahead - i; ++j) {
 					if (i == 0 && j == 0) { continue; }
 					ds.push_back({ -i, -j });
 				}
@@ -185,13 +192,12 @@ public:
 
 		Input prev = "";
 		static auto divNum = [](int pos, int start, int size) {
-			static const int kNumDivs = 4;
-			for (int i = 0; i < kNumDivs; ++i) {
-				if (pos < start + i * size / kNumDivs) {
+			for (int i = 0; i < gArgs.imageDivisions; ++i) {
+				if (pos < start + i * size / gArgs.imageDivisions) {
 					return '0' + i;
 				}
 			}
-			return '0' + kNumDivs;
+			return '0' + gArgs.imageDivisions;
 		};
 		prev += divNum(x, r.x, r.w);
 		prev += divNum(y, r.y, r.h);
@@ -252,9 +258,7 @@ public:
 			return SDL_MapRGBA(_inputFormat, 0, 0, 0, 0);
 		}
 
-		static const bool kGreyscale = true;
-
-		if (kGreyscale) {
+		if (!gArgs.useColor) {
 			Uint8 o = (r + g + b) / 3;
 			o = valueForAtom(atomForValue(o));
 			return SDL_MapRGBA(_inputFormat, o, o, o, a);
@@ -291,13 +295,12 @@ public:
 
 		for (auto inCount : _data) {
 			int count = 0;
-			static const int kBias = 3;
 			for (auto colCount : inCount.second) {
-				count += colCount.second + kBias;
+				count += colCount.second + gArgs.biasTerm;
 			}
 			Probability probs;
 			for (auto colCount : inCount.second) {
-				probs[colCount.first] = (float)(colCount.second + kBias) / count;
+				probs[colCount.first] = (float)(colCount.second + gArgs.biasTerm) / count;
 			}
 			_probabilities[inCount.first] = probs;
 		}
@@ -352,6 +355,24 @@ public:
 };
 
 int main(int argc, char** argv) {
+	for (int i = 1; i < argc; ++i) {
+		if (argv[i] == string("--color")) {
+			gArgs.useColor = true;
+		}
+		else if (argv[i] == string("--lookahead")) {
+			gArgs.lookahead = atoi(argv[i + 1]);
+			i += 1;
+		}
+		else if (argv[i] == string("--divisions")) {
+			gArgs.imageDivisions = atoi(argv[i + 1]);
+			i += 1;
+		}
+		else if (argv[i] == string("--bias")) {
+			gArgs.biasTerm = atoi(argv[i + 1]);
+			i += 1;
+		}
+	}
+
 	if (SDL_Init(SDL_INIT_VIDEO) < 0) {
 		cout << "SDL could not initialize: Error: " << SDL_GetError() << endl;
 	}
@@ -372,9 +393,10 @@ int main(int argc, char** argv) {
 		cout << "Renderer could not be created: Error: " << SDL_GetError() << endl;
 	}
 
-	auto inputSurface = IMG_Load("../Input/MarioSpritesheet.png");
+	// auto inputSurface = IMG_Load("../Input/MarioSpritesheet.png");
+	auto inputSurface = IMG_Load("../Input/MegaMan3Sheet2.gif");
 
-	int texSize = 32;
+	int texSize = 16;
 
 	SpriteMarkov markov(inputSurface);
 
@@ -432,7 +454,7 @@ int main(int argc, char** argv) {
 
 		SDL_RenderClear(renderer);
 
-		float scale = 4.0f;
+		float scale = 20.0f;
 		SDL_Rect rect;
 		rect.w = (int)(scale * texSize);
 		rect.h = (int)(scale * texSize);

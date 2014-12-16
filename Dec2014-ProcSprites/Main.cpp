@@ -9,6 +9,7 @@
 #undef _DEBUG
 #include <boost/filesystem.hpp>
 #include <iostream>
+#include <map>
 #include <stdio.h>
 #include <string>
 #include <unordered_map>
@@ -16,6 +17,17 @@
 #include <vector>
 
 using namespace std;
+
+struct MarkovArgs {
+	int lookahead = 1;
+	int imageDivisions = 4;
+	bool useColor = false;
+	int biasTerm = 5;
+	bool printCounts = false;
+	int passes = 1;
+	string inputFolder = "Input/";
+};
+MarkovArgs gArgs;
 
 struct Point {
 	int x, y;
@@ -147,14 +159,6 @@ vector<SDL_Rect> getSprites(SDL_Surface *surface) {
 	return rects;
 }
 
-struct MarkovArgs {
-	int lookahead = 1;
-	int imageDivisions = 4;
-	bool useColor = false;
-	int biasTerm = 5;
-};
-MarkovArgs gArgs;
-
 class SpriteMarkov {
 private:
 	typedef Uint32 Color;
@@ -275,6 +279,17 @@ public:
 		}
 	}
 
+	Color averageColors(Color c1, Color c2) {
+		Uint8 r1, g1, b1, a1;
+		Uint8 r2, g2, b2, a2;
+		SDL_GetRGBA(c1, _inputFormat, &r1, &g1, &b1, &a1);
+		SDL_GetRGBA(c2, _inputFormat, &r2, &g2, &b2, &a2);
+		static const auto avg = [](Uint8 a, Uint8 b) {
+			return (a + b) / 2;
+		};
+		return SDL_MapRGBA(_inputFormat, avg(r1, r2), avg(g1, g2), avg(b1, b2), avg(a1, a2));
+	}
+
 	void loadSurface(SDL_Surface *input) {
 		if (!_initialized) {
 			_bpp = input->format->BytesPerPixel;
@@ -344,6 +359,21 @@ public:
 			}
 		}
 
+		for (int i = 1; i < gArgs.passes; ++i) {
+			Uint8 *nextPass = new Uint8[width * height * _bpp];
+			for (int y = 0; y < height; ++y) {
+				for (int x = 0; x < width; ++x) {
+					Input prev = getPrev(getColor, rect, x, y);
+					Color cur = getRawPixel(_generatedPixels, _bpp, _bpp * width, x, y);
+					Color curP2 = getNext(prev);
+					Color avg = averageColors(cur, curP2);
+					setRawPixel(nextPass, _bpp, _bpp * width, x, y, filterColor(avg));
+				}
+			}
+			delete[] _generatedPixels;
+			_generatedPixels = nextPass;
+		}
+
 		return _generatedPixels;
 	}
 
@@ -366,6 +396,9 @@ int main(int argc, char** argv) {
 		if (argv[i] == string("--color")) {
 			gArgs.useColor = true;
 		}
+		else if (argv[i] == string("--print-count")) {
+			gArgs.printCounts = true;
+		} 
 		else if (argv[i] == string("--lookahead")) {
 			gArgs.lookahead = atoi(argv[i + 1]);
 			i += 1;
@@ -376,6 +409,14 @@ int main(int argc, char** argv) {
 		}
 		else if (argv[i] == string("--bias")) {
 			gArgs.biasTerm = atoi(argv[i + 1]);
+			i += 1;
+		}
+		else if (argv[i] == string("--passes")) {
+			gArgs.passes = atoi(argv[i + 1]);
+			i += 1;
+		}
+		else if (argv[i] == string("--input")) {
+			gArgs.inputFolder = argv[i + 1];
 			i += 1;
 		}
 	}
@@ -406,12 +447,18 @@ int main(int argc, char** argv) {
 	auto loadInDirectory = [&markov](string dir) {
 		boost::filesystem::recursive_directory_iterator end;
 		for (decltype(end) it(dir); it != end; ++it) {
-			auto path = it->path().c_str();
-			cout << "Loading : " << path << '\n';
-			markov.loadSurface(IMG_Load(path));
+			if (!is_directory(*it)) {
+				auto path = it->path().string();
+				cout << "Loading : " << path << '\n';
+				markov.loadSurface(IMG_Load(path.c_str()));
+			}
 		}
 	};
-	loadInDirectory("Input/");
+	loadInDirectory(gArgs.inputFolder);
+
+	if (gArgs.printCounts) {
+		markov.PrintProbabilities();
+	}
 
 	SDL_Texture *texture = nullptr;
 	auto rebuildTexture = [&texture, &texSize, &markov, renderer]() {

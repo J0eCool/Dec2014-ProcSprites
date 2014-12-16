@@ -12,6 +12,7 @@
 #include <map>
 #include <stdio.h>
 #include <string>
+#include <sstream>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -26,8 +27,49 @@ struct MarkovArgs {
 	bool printCounts = false;
 	int passes = 1;
 	string inputFolder = "Input/";
+	string outputFolder = "";
+	int numOutputImages = 100;
 };
 MarkovArgs gArgs;
+
+void parseInput(int argc, char** argv) {
+	for (int i = 1; i < argc; ++i) {
+		if (argv[i] == string("--color")) {
+			gArgs.useColor = true;
+		}
+		else if (argv[i] == string("--print-count")) {
+			gArgs.printCounts = true;
+		} 
+		else if (argv[i] == string("--lookahead")) {
+			gArgs.lookahead = atoi(argv[i + 1]);
+			i += 1;
+		}
+		else if (argv[i] == string("--divisions")) {
+			gArgs.imageDivisions = atoi(argv[i + 1]);
+			i += 1;
+		}
+		else if (argv[i] == string("--bias")) {
+			gArgs.biasTerm = atoi(argv[i + 1]);
+			i += 1;
+		}
+		else if (argv[i] == string("--passes")) {
+			gArgs.passes = atoi(argv[i + 1]);
+			i += 1;
+		}
+		else if (argv[i] == string("--input")) {
+			gArgs.inputFolder = argv[i + 1];
+			i += 1;
+		}
+		else if (argv[i] == string("--output")) {
+			gArgs.outputFolder = argv[i + 1];
+			i += 1;
+		}
+		else if (argv[i] == string("--output-count")) {
+			gArgs.numOutputImages = atoi(argv[i + 1]);
+			i += 1;
+		}
+	}
+}
 
 struct Point {
 	int x, y;
@@ -172,6 +214,8 @@ private:
 	SDL_PixelFormat *_inputFormat;
 
 	int _bpp;
+	int _width;
+	int _height;
 
 	Uint8 *_generatedPixels = nullptr;
 
@@ -343,6 +387,9 @@ public:
 		}
 		_generatedPixels = new Uint8[width * height * _bpp];
 
+		_width = width;
+		_height = height;
+
 		auto getColor = [this, width](Point p) {
 			return inputForColor(getRawPixel(_generatedPixels, _bpp, _bpp * width, p.x, p.y));
 		};
@@ -388,59 +435,31 @@ public:
 		}
 	}
 
+	bool WriteSurface(string filename) {
+		auto surf = SDL_CreateRGBSurfaceFrom(_generatedPixels,
+			_width, _height, _bpp * 8, _width * _bpp,
+			_inputFormat->Rmask, _inputFormat->Gmask,
+			_inputFormat->Bmask, _inputFormat->Amask);
+		bool error = (SDL_SaveBMP(surf, filename.c_str()) == -1);
+		SDL_FreeSurface(surf);
+		return error;
+	}
+
 	SDL_PixelFormat* GetFormat() { return _inputFormat; }
 };
 
 int main(int argc, char** argv) {
-	for (int i = 1; i < argc; ++i) {
-		if (argv[i] == string("--color")) {
-			gArgs.useColor = true;
-		}
-		else if (argv[i] == string("--print-count")) {
-			gArgs.printCounts = true;
-		} 
-		else if (argv[i] == string("--lookahead")) {
-			gArgs.lookahead = atoi(argv[i + 1]);
-			i += 1;
-		}
-		else if (argv[i] == string("--divisions")) {
-			gArgs.imageDivisions = atoi(argv[i + 1]);
-			i += 1;
-		}
-		else if (argv[i] == string("--bias")) {
-			gArgs.biasTerm = atoi(argv[i + 1]);
-			i += 1;
-		}
-		else if (argv[i] == string("--passes")) {
-			gArgs.passes = atoi(argv[i + 1]);
-			i += 1;
-		}
-		else if (argv[i] == string("--input")) {
-			gArgs.inputFolder = argv[i + 1];
-			i += 1;
-		}
-	}
+	parseInput(argc, argv);
 
 	if (SDL_Init(SDL_INIT_VIDEO) < 0) {
 		cout << "SDL could not initialize: Error: " << SDL_GetError() << endl;
+		return 1;
 	}
 	int imgFlags = IMG_INIT_PNG;
 	if (!(IMG_Init(imgFlags) & imgFlags)) {
 		cout << "SDL_image could not initialize: Error: " << IMG_GetError() << endl;
+		return 1;
 	}
-	int screenWidth = 800;
-	int screenHeight = 600;
-	auto window = SDL_CreateWindow("Procedural Sprites", 
-		SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
-		screenWidth, screenHeight, SDL_WINDOW_SHOWN);
-	if (!window) {
-		cout << "Window could not be created: Error: " << SDL_GetError() << endl;
-	}
-	auto renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
-	if (!renderer) {
-		cout << "Renderer could not be created: Error: " << SDL_GetError() << endl;
-	}
-
 	int texSize = 16;
 
 	SpriteMarkov markov;
@@ -458,6 +477,40 @@ int main(int argc, char** argv) {
 
 	if (gArgs.printCounts) {
 		markov.PrintProbabilities();
+	}
+
+	if (gArgs.outputFolder != "") {
+		for (int i = 1; i <= gArgs.numOutputImages; ++i) {
+			stringstream filenameStream;
+			filenameStream << gArgs.outputFolder << i << ".bmp";
+			string filename = filenameStream.str();
+
+			cout << "Writing: " << filename << '\n';
+
+			markov.CreatePixelData(texSize, texSize);
+			if (markov.WriteSurface(filename.c_str())) {
+				cout << "ERROR: could not write file \"" << filename
+					<< "\" , SDL_Error: " << SDL_GetError() << endl;
+				return 1;
+			}
+		}
+
+		return 0;
+	}
+
+	int screenWidth = 800;
+	int screenHeight = 600;
+	auto window = SDL_CreateWindow("Procedural Sprites", 
+		SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
+		screenWidth, screenHeight, SDL_WINDOW_SHOWN);
+	if (!window) {
+		cout << "Window could not be created: Error: " << SDL_GetError() << endl;
+		return 1;
+	}
+	auto renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+	if (!renderer) {
+		cout << "Renderer could not be created: Error: " << SDL_GetError() << endl;
+		return 1;
 	}
 
 	SDL_Texture *texture = nullptr;

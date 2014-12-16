@@ -29,6 +29,8 @@ struct MarkovArgs {
 	string inputFolder = "Input/";
 	string outputFolder = "";
 	int numOutputImages = 100;
+	int width = 16;
+	int height = 16;
 };
 MarkovArgs gArgs;
 
@@ -40,32 +42,45 @@ void parseInput(int argc, char** argv) {
 		else if (argv[i] == string("--print-count")) {
 			gArgs.printCounts = true;
 		} 
-		else if (argv[i] == string("--lookahead")) {
+		else if (argv[i] == string("--lookahead") || argv[i] == string("-l")) {
 			gArgs.lookahead = atoi(argv[i + 1]);
 			i += 1;
 		}
-		else if (argv[i] == string("--divisions")) {
+		else if (argv[i] == string("--divisions") || argv[i] == string("-d")) {
 			gArgs.imageDivisions = atoi(argv[i + 1]);
 			i += 1;
 		}
-		else if (argv[i] == string("--bias")) {
+		else if (argv[i] == string("--bias") || argv[i] == string("-b")) {
 			gArgs.biasTerm = atoi(argv[i + 1]);
 			i += 1;
 		}
-		else if (argv[i] == string("--passes")) {
+		else if (argv[i] == string("--passes") || argv[i] == string("-p")) {
 			gArgs.passes = atoi(argv[i + 1]);
 			i += 1;
 		}
-		else if (argv[i] == string("--input")) {
+		else if (argv[i] == string("--input") || argv[i] == string("-i")) {
 			gArgs.inputFolder = argv[i + 1];
 			i += 1;
 		}
-		else if (argv[i] == string("--output")) {
+		else if (argv[i] == string("--output") || argv[i] == string("-o")) {
 			gArgs.outputFolder = argv[i + 1];
 			i += 1;
 		}
-		else if (argv[i] == string("--output-count")) {
+		else if (argv[i] == string("--output-count") || argv[i] == string("-c")) {
 			gArgs.numOutputImages = atoi(argv[i + 1]);
+			i += 1;
+		}
+		else if (argv[i] == string("--width") || argv[i] == string("-w")) {
+			gArgs.width = atoi(argv[i + 1]);
+			i += 1;
+		}
+		else if (argv[i] == string("--height") || argv[i] == string("-h")) {
+			gArgs.height = atoi(argv[i + 1]);
+			i += 1;
+		}
+		else if (argv[i] == string("--size") || argv[i] == string("-w")) {
+			gArgs.width = atoi(argv[i + 1]);
+			gArgs.height = gArgs.width;
 			i += 1;
 		}
 	}
@@ -460,7 +475,9 @@ int main(int argc, char** argv) {
 		cout << "SDL_image could not initialize: Error: " << IMG_GetError() << endl;
 		return 1;
 	}
-	int texSize = 16;
+
+	int texWidth = gArgs.width;
+	int texHeight = gArgs.height;
 
 	SpriteMarkov markov;
 	auto loadInDirectory = [&markov](string dir) {
@@ -487,7 +504,7 @@ int main(int argc, char** argv) {
 
 			cout << "Writing: " << filename << '\n';
 
-			markov.CreatePixelData(texSize, texSize);
+			markov.CreatePixelData(texWidth, texHeight);
 			if (markov.WriteSurface(filename.c_str())) {
 				cout << "ERROR: could not write file \"" << filename
 					<< "\" , SDL_Error: " << SDL_GetError() << endl;
@@ -514,16 +531,16 @@ int main(int argc, char** argv) {
 	}
 
 	SDL_Texture *texture = nullptr;
-	auto rebuildTexture = [&texture, &texSize, &markov, renderer]() {
+	auto rebuildTexture = [&texture, &texWidth, &texHeight, &markov, renderer]() {
 		if (texture) SDL_DestroyTexture(texture);
 		texture = SDL_CreateTexture(renderer, markov.GetFormat()->format,
-			SDL_TEXTUREACCESS_STATIC, texSize, texSize);
+			SDL_TEXTUREACCESS_STATIC, texWidth, texHeight);
 	};
-	auto buildSprite = [&texture, &texSize, &markov](void* pixels) {
-		SDL_UpdateTexture(texture, nullptr, pixels, texSize * markov.GetFormat()->BytesPerPixel);
+	auto buildSprite = [&texture, &texWidth, &markov](void* pixels) {
+		SDL_UpdateTexture(texture, nullptr, pixels, texWidth * markov.GetFormat()->BytesPerPixel);
 	};
-	auto remakeSprite = [&texture, &texSize, &markov, buildSprite]() {
-		auto pixels = markov.CreatePixelData(texSize, texSize);
+	auto remakeSprite = [&texture, &texWidth, &texHeight, &markov, buildSprite]() {
+		auto pixels = markov.CreatePixelData(texWidth, texHeight);
 		buildSprite(pixels);
 	};
 
@@ -551,13 +568,16 @@ int main(int argc, char** argv) {
 					break;
 
 				case SDLK_UP:
-					texSize = (int)(texSize * kScaleFactor + 1);
+					texWidth = (int)(texWidth * kScaleFactor + 1);
+					texHeight = (int)(texHeight * kScaleFactor + 1);
 					rebuildTexture();
 					remakeSprite();
 					break;
 				case SDLK_DOWN:
-					texSize = (int)(texSize / kScaleFactor - 1);
-					texSize = SDL_max(texSize, 0);
+					texWidth = (int)(texWidth / kScaleFactor - 1);
+					texWidth = SDL_max(texWidth, 0);
+					texHeight = (int)(texHeight / kScaleFactor - 1);
+					texHeight = SDL_max(texHeight, 0);
 					rebuildTexture();
 					remakeSprite();
 					break;
@@ -569,8 +589,8 @@ int main(int argc, char** argv) {
 
 		float scale = 20.0f;
 		SDL_Rect rect;
-		rect.w = (int)(scale * texSize);
-		rect.h = (int)(scale * texSize);
+		rect.w = (int)(scale * texWidth);
+		rect.h = (int)(scale * texHeight);
 		rect.x = (screenWidth - rect.w) / 2;
 		rect.y = (screenHeight - rect.h) / 2;
 		SDL_RenderCopy(renderer, texture, nullptr, &rect);

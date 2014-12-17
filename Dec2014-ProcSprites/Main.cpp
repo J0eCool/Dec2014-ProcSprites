@@ -9,6 +9,7 @@
 #undef _DEBUG
 #include <boost/filesystem.hpp>
 #include <iostream>
+#include <fstream>
 #include <map>
 #include <stdio.h>
 #include <string>
@@ -31,59 +32,97 @@ struct MarkovArgs {
 	int numOutputImages = 100;
 	int width = 16;
 	int height = 16;
+	int scale = 20;
 };
 MarkovArgs gArgs;
 
-void parseInput(int argc, char** argv) {
-	for (int i = 1; i < argc; ++i) {
-		if (argv[i] == string("--color")) {
+int atoi(string str) {
+	return atoi(str.c_str());
+}
+
+void parseConfigFile(string filename);
+
+void parseInput(vector<string> args) {
+	for (unsigned i = 1; i < args.size(); ++i) {
+		if (args[i] == "--color") {
 			gArgs.useColor = true;
 		}
-		else if (argv[i] == string("--print-count")) {
+		else if (args[i] == "--print-count") {
 			gArgs.printCounts = true;
 		} 
-		else if (argv[i] == string("--lookahead") || argv[i] == string("-l")) {
-			gArgs.lookahead = atoi(argv[i + 1]);
+		else if (args[i] == "--lookahead" || args[i] == "-l") {
+			gArgs.lookahead = atoi(args[i + 1]);
 			i += 1;
 		}
-		else if (argv[i] == string("--divisions") || argv[i] == string("-d")) {
-			gArgs.imageDivisions = atoi(argv[i + 1]);
+		else if (args[i] == "--divisions" || args[i] == "-d") {
+			gArgs.imageDivisions = atoi(args[i + 1]);
 			i += 1;
 		}
-		else if (argv[i] == string("--bias") || argv[i] == string("-b")) {
-			gArgs.biasTerm = atoi(argv[i + 1]);
+		else if (args[i] == "--bias" || args[i] == "-b") {
+			gArgs.biasTerm = atoi(args[i + 1]);
 			i += 1;
 		}
-		else if (argv[i] == string("--passes") || argv[i] == string("-p")) {
-			gArgs.passes = atoi(argv[i + 1]);
+		else if (args[i] == "--passes" || args[i] == "-p") {
+			gArgs.passes = atoi(args[i + 1]);
 			i += 1;
 		}
-		else if (argv[i] == string("--input") || argv[i] == string("-i")) {
-			gArgs.inputFolder = argv[i + 1];
+		else if (args[i] == "--input" || args[i] == "-i") {
+			gArgs.inputFolder = args[i + 1];
 			i += 1;
 		}
-		else if (argv[i] == string("--output") || argv[i] == string("-o")) {
-			gArgs.outputFolder = argv[i + 1];
+		else if (args[i] == "--output" || args[i] == "-o") {
+			gArgs.outputFolder = args[i + 1];
 			i += 1;
 		}
-		else if (argv[i] == string("--output-count") || argv[i] == string("-c")) {
-			gArgs.numOutputImages = atoi(argv[i + 1]);
+		else if (args[i] == "--output-count" || args[i] == "-c") {
+			gArgs.numOutputImages = atoi(args[i + 1]);
 			i += 1;
 		}
-		else if (argv[i] == string("--width") || argv[i] == string("-w")) {
-			gArgs.width = atoi(argv[i + 1]);
+		else if (args[i] == "--width" || args[i] == "-w") {
+			gArgs.width = atoi(args[i + 1]);
 			i += 1;
 		}
-		else if (argv[i] == string("--height") || argv[i] == string("-h")) {
-			gArgs.height = atoi(argv[i + 1]);
+		else if (args[i] == "--height" || args[i] == "-h") {
+			gArgs.height = atoi(args[i + 1]);
 			i += 1;
 		}
-		else if (argv[i] == string("--size") || argv[i] == string("-w")) {
-			gArgs.width = atoi(argv[i + 1]);
+		else if (args[i] == "--size" || args[i] == "-s") {
+			gArgs.width = atoi(args[i + 1]);
 			gArgs.height = gArgs.width;
 			i += 1;
 		}
+		else if (args[i] == "--scale") {
+			gArgs.scale = atoi(args[i + 1]);
+			i += 1;
+		}
+		else if (args[i] == "--config") {
+			parseConfigFile(args[i + 1]);
+			i += 1;
+		}
+		else {
+			cout << "ERROR: cannot parse argument \"" << args[i] << "\"\n";
+		}
 	}
+}
+
+void parseInput(int argc, char** argv) {
+	vector<string> args;
+	for (int i = 0; i < argc; ++i) {
+		args.push_back(string(argv[i]));
+	}
+	parseInput(args);
+}
+
+void parseConfigFile(string filename) {
+	vector<string> args;
+	args.push_back(""); //dummy argv[0]
+	ifstream ifile(filename.c_str());
+	while (!ifile.eof()) {
+		string str;
+		ifile >> str;
+		args.push_back(str);
+	}
+	parseInput(args);
 }
 
 struct Point {
@@ -429,7 +468,8 @@ public:
 					Color cur = getRawPixel(_generatedPixels, _bpp, _bpp * width, x, y);
 					Color curP2 = getNext(prev);
 					Color avg = averageColors(cur, curP2);
-					setRawPixel(nextPass, _bpp, _bpp * width, x, y, filterColor(avg));
+					Color next = curP2; //filterColor(avg);
+					setRawPixel(nextPass, _bpp, _bpp * width, x, y, next);
 				}
 			}
 			delete[] _generatedPixels;
@@ -587,7 +627,7 @@ int main(int argc, char** argv) {
 
 		SDL_RenderClear(renderer);
 
-		float scale = 20.0f;
+		float scale = gArgs.scale;
 		SDL_Rect rect;
 		rect.w = (int)(scale * texWidth);
 		rect.h = (int)(scale * texHeight);

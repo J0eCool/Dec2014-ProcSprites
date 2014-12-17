@@ -1,0 +1,8 @@
+--width 24
+--height 32
+--scale 12
+--passes 1
+--lookahead 1
+--divisions 3
+--input Input/
+

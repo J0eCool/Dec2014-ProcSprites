@@ -282,12 +282,29 @@ public:
 		static vector<Point> ds;
 		if (!didInitialize) {
 			didInitialize = true;
+
+			// lookahead is left and up
 			for (int i = 0; i <= gArgs.lookahead; ++i) {
 				for (int j = 0; j <= gArgs.lookahead - i; ++j) {
 					if (i == 0 && j == 0) { continue; }
 					ds.push_back({ -i, -j });
 				}
 			}
+
+			// // lookahead is up in a cone
+			// for (int i = 1; i < gArgs.lookahead; ++i) {
+			// 	for (int j = -i; j <= i; ++j) {
+			// 		ds.push_back({ -j, -i });
+			// 	}
+			// }
+
+			// // lookahead is up in a tapering cone
+			// for (int i = 1; i < gArgs.lookahead; ++i) {
+			// 	int m = SDL_min(i, gArgs.lookahead - i);
+			// 	for (int j = -m; j <= m; ++j) {
+			// 		ds.push_back({ -j, -i });
+			// 	}
+			// }
 		}
 
 		vector<Point> ps;
@@ -515,6 +532,8 @@ int main(int argc, char** argv) {
 		cout << "SDL_image could not initialize: Error: " << IMG_GetError() << endl;
 		return 1;
 	}
+
+	srand(SDL_GetTicks());
 
 	int texWidth = gArgs.width;
 	int texHeight = gArgs.height;

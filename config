@@ -1,8 +1,11 @@
---width 24
---height 32
+--width 12
+--height 16
 --scale 12
 --passes 1
---lookahead 1
---divisions 3
---input Input/
+--lookahead 2
+--color
+--divisions 4
 
+--input Input/
+--output Output/
+--output-count 500
